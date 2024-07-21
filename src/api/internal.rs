@@ -8,7 +8,7 @@
 // PATENTS file, you can obtain it at www.aomedia.org/license/patent.
 #![deny(missing_docs)]
 
-use crate::activity::ActivityMask;
+use crate::activity::{compute_block_brightnesses, ActivityMask};
 use crate::api::lookahead::*;
 use crate::api::{
   EncoderConfig, EncoderStatus, FrameType, Opaque, Packet, T35,
@@ -1333,6 +1333,9 @@ impl<T: Pixel> ContextInner<T> {
           frame_data.fi.sequence.bit_depth,
           &mut coded_data.activity_scales,
         );
+        // Brightnesses MUST be computed before spatiotemporal scores
+        coded_data.block_brightnesses =
+            compute_block_brightnesses(frame, &self.config);
         log_isqrt_mean_scale = coded_data.compute_spatiotemporal_scores();
       } else {
         coded_data.activity_mask = ActivityMask::default();

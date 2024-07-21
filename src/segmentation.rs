@@ -84,12 +84,13 @@ fn segmentation_optimize_inner<T: Pixel>(
   // Minimize the total distance from a small set of values to all scales.
   // Find k-means of log(spatiotemporal scale), k in 3..=8
   let c: ([_; 8], [_; 7], [_; 6], [_; 5], [_; 4], [_; 3]) = {
-    let spatiotemporal_scores =
-      &fi.coded_frame_data.as_ref().unwrap().spatiotemporal_scores;
+    let frame_data = &fi.coded_frame_data.as_ref().unwrap();
+
+    let spatiotemporal_scores = &frame_data.spatiotemporal_scores;
+
     let mut log2_scale_q11 = Vec::with_capacity(spatiotemporal_scores.len());
     log2_scale_q11.extend(spatiotemporal_scores.iter().map(|&s| s.blog16()));
-    log2_scale_q11.sort_unstable();
-    let l = &log2_scale_q11;
+    log2_scale_q11.sort_unstable();    let l = &log2_scale_q11;
     (kmeans(l), kmeans(l), kmeans(l), kmeans(l), kmeans(l), kmeans(l))
   };
 

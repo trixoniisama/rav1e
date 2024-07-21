@@ -721,6 +721,9 @@ pub struct CodedFrameData<T: Pixel> {
   /// Pre-computed `activity_scale`.
   pub activity_scales: Box<[DistortionScale]>,
   pub activity_mask: ActivityMask,
+  /// Pre-computed average brightness of each importance block.
+  /// These are on a scale of 0.0 for black to 1.0 for white.
+  pub block_brightnesses: Box<[f32]>,
   /// Combined metric of activity and distortion
   pub spatiotemporal_scores: Box<[DistortionScale]>,
 }
@@ -750,6 +753,7 @@ impl<T: Pixel> CodedFrameData<T> {
       ]
       .into_boxed_slice(),
       activity_mask: Default::default(),
+      block_brightnesses: Default::default(),
       spatiotemporal_scores: Default::default(),
     }
   }
@@ -775,7 +779,23 @@ impl<T: Pixel> CodedFrameData<T> {
       *scale *= inv_mean;
     }
 
-    self.spatiotemporal_scores = scores;
+        // Adjust for low-luma bias
+    let flat_scores =
+      scores.iter().copied().map(f64::from).collect::<Box<_>>();
+    // Have to use `fold` since `f64` is not `Ord`
+    let frame_score_max =
+      flat_scores.iter().fold(1.0f64, |max, &s| if s > max { s } else { max });
+    let frame_score_min =
+      flat_scores.iter().fold(1.0f64, |min, &s| if s < min { s } else { min });
+    self.spatiotemporal_scores = flat_scores
+      .iter()
+      .zip(self.block_brightnesses.iter())
+      .map(|(score, brightness)| {
+        let score = adjust_spatiotemporal_for_lightness(*score, *brightness);
+        // We need to maintain the overall range of values within the frame
+        DistortionScale::from(score.max(frame_score_min).min(frame_score_max))
+      })
+      .collect();
 
     inv_mean.blog64() >> 1
   }

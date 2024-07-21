@@ -7,10 +7,13 @@
 // Media Patent License 1.0 was not distributed with this source code in the
 // PATENTS file, you can obtain it at www.aomedia.org/license/patent.
 
+use crate::api::lookahead::compute_frame_lightness;
+use crate::encoder::IMPORTANCE_BLOCK_SIZE;
 use crate::frame::*;
 use crate::rdo::DistortionScale;
 use crate::tiling::*;
 use crate::util::*;
+use crate::EncoderConfig;
 use itertools::izip;
 
 #[derive(Debug, Default, Clone)]
@@ -185,6 +188,40 @@ pub const fn apply_ssim_boost(
     >> rsqrt.shift) as u32
 }
 
+/// Computes the average brightness for each importance block.
+/// Returns the mean as a value between 0.0 to 1.0,
+/// where 0.0 is pure black and 1.0 is pure white.
+pub(crate) fn compute_block_brightnesses<T: Pixel>(
+  frame: &Frame<T>, enc: &EncoderConfig,
+) -> Box<[f32]> {
+  let hsl = compute_frame_lightness(frame, enc);
+  let PlaneConfig { width, height, .. } = frame.planes[0].cfg;
+
+  // Width and height are padded to 8×8 block size.
+  let w_in_imp_b = width.align_power_of_two_and_shift(3);
+  let h_in_imp_b = height.align_power_of_two_and_shift(3);
+
+  let mut brightnesses = Vec::with_capacity(w_in_imp_b * h_in_imp_b);
+
+  for y in 0..h_in_imp_b {
+    for x in 0..w_in_imp_b {
+      let block_start_y = y * IMPORTANCE_BLOCK_SIZE;
+      let block_start_x = x * IMPORTANCE_BLOCK_SIZE;
+      let bheight = 8.min(height - block_start_y);
+      let bwidth = 8.min(width - block_start_x);
+      let mut sum = 0f32;
+      for j in 0..bheight {
+        let row_start = (block_start_y + j) * width;
+        let slice = &hsl[(row_start + block_start_x)..];
+        sum += slice.iter().take(bwidth).copied().sum::<f32>();
+      }
+      brightnesses.push(sum / (bwidth * bheight) as f32);
+    }
+  }
+
+  brightnesses.into_boxed_slice()
+}
+
 #[cfg(test)]
 mod ssim_boost_tests {
   use super::*;
@@ -272,4 +309,20 @@ mod ssim_boost_tests {
       max_relative_error
     );
   }
+}
+
+pub(crate) fn adjust_spatiotemporal_for_lightness(
+  score: f64, mean_lightness: f32,
+) -> f64 {
+  // We want to use a lower scale for low luma areas,
+  // because lower scales are given more bits.
+  let multiplier = if mean_lightness <= 0.5 {
+    // Dark areas get more bits.
+    // This results in as low as a 0.5 multiplier for the darkest areas.
+    mean_lightness + 0.5
+  } else {
+    // Bright areas can remain unadjusted
+    1.0
+  } as f64;
+  score * multiplier
 }

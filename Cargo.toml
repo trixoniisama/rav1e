@@ -119,6 +119,7 @@ tracing-subscriber = { version = "0.3.18", optional = true }
 tracing-chrome = { version = "0.7.1", optional = true }
 tracing = { version = "0.1.40", optional = true }
 aligned-vec = "0.6.0"
+yuvxyb = "0.2.1"
 
 [dependencies.image]
 version = "0.25.0"
